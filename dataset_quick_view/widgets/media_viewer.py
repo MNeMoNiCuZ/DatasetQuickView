@@ -9,6 +9,7 @@ class MediaViewer(QWidget):
     def __init__(self, config=None):
         super().__init__()
         self.config = config
+        self.original_pixmap = None
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
 
@@ -50,8 +51,8 @@ class MediaViewer(QWidget):
         if ext in supported_image_formats:
             self.video_widget.hide()
             self.image_label.show()
-            pixmap = QPixmap(file_path)
-            self.image_label.setPixmap(pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            self.original_pixmap = QPixmap(file_path)
+            self.image_label.setPixmap(self.original_pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
         elif ext in supported_video_formats:
             self.image_label.hide()
@@ -74,10 +75,10 @@ class MediaViewer(QWidget):
         self.image_label.hide()
         self.image_label.clear()
         self.video_widget.hide()
+        self.original_pixmap = None
 
     def resizeEvent(self, event):
-        # When the widget is resized, scale the pixmap again.
-        if self.image_label.pixmap() and not self.image_label.pixmap().isNull():
-            current_pixmap = self.image_label.pixmap()
-            self.image_label.setPixmap(current_pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        # When the widget is resized, scale the pixmap again from the original.
+        if self.original_pixmap and not self.original_pixmap.isNull():
+            self.image_label.setPixmap(self.original_pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         super().resizeEvent(event)
