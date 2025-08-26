@@ -87,6 +87,11 @@ class FileListView(QWidget):
         self.apply_view_settings()
 
     def apply_view_settings(self):
+        current_media_path = None
+        current_item = self.list_widget.currentItem()
+        if current_item:
+            current_media_path = current_item.data(Qt.ItemDataRole.UserRole)
+
         view_mode = self.config.get_setting('FileList', 'view_mode', 'List')
         thumb_size = int(self.config.get_setting('FileList', 'thumbnail_size', 80))
         grid_layout = self.config.get_bool_setting('FileList', 'grid_layout', False)
@@ -112,6 +117,13 @@ class FileListView(QWidget):
             self.list_widget.setIconSize(QSize(0, 0))
 
         self.populate_list(self.dataset.keys())
+
+        if current_media_path:
+            for i in range(self.list_widget.count()):
+                item = self.list_widget.item(i)
+                if item.data(Qt.ItemDataRole.UserRole) == current_media_path:
+                    self.list_widget.setCurrentItem(item)
+                    break
 
     def populate_list(self, media_files):
         self.list_widget.clear()

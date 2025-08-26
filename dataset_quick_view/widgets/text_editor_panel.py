@@ -149,6 +149,7 @@ class TextEditorPanel(QWidget):
             filename = os.path.basename(file_path)
             label = QLabel(f"<b>{filename}</b>")
             editor = QTextEdit()
+            editor.viewport().installEventFilter(self.main_window)
             
             font = editor.font()
             font.setPointSize(font_size)

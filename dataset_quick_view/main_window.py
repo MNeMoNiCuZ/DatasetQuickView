@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog, QLabel
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog, QLabel, QListWidget, QTextEdit
 from PyQt6.QtGui import QShortcut, QKeySequence, QFont, QIcon, QAction
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 import os, sys
@@ -216,8 +216,7 @@ class MainWindow(QMainWindow):
         self.file_list.currentItemChanged.connect(self.on_file_selected)
         self.text_editor_panel.text_modified.connect(self.on_text_modified)
         self.recursive_checkbox.toggled.connect(self.update_status) # Update title when toggled
-        self.file_list.installEventFilter(self)
-        self.text_editor_panel.installEventFilter(self)
+        self.file_list.list_widget.viewport().installEventFilter(self)
 
     def setup_hotkeys(self):
         QShortcut(QKeySequence("Ctrl+S"), self, self.save_current_item_changes)
@@ -438,13 +437,25 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.Type.Wheel and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
-            if event.angleDelta().y() > 0:
-                self.current_font_size += 1
-            else:
-                self.current_font_size = max(6, self.current_font_size - 1)
-            self.apply_font_settings()
-            self.config.set_setting('Display', 'font_size', str(self.current_font_size))
-            return True
+            parent = source.parent()
+            if isinstance(parent, QListWidget):
+                if parent.viewMode() == QListWidget.ViewMode.IconMode:
+                    current_thumb_size = int(self.config.get_setting('FileList', 'thumbnail_size', 80))
+                    if event.angleDelta().y() > 0:
+                        new_thumb_size = current_thumb_size + 10
+                    else:
+                        new_thumb_size = max(20, current_thumb_size - 10)
+                    self.config.set_setting('FileList', 'thumbnail_size', str(new_thumb_size))
+                    self.file_list.apply_view_settings()
+                    return True
+            elif isinstance(parent, QTextEdit):
+                if event.angleDelta().y() > 0:
+                    self.current_font_size += 1
+                else:
+                    self.current_font_size = max(6, self.current_font_size - 1)
+                self.apply_font_settings()
+                self.config.set_setting('Display', 'font_size', str(self.current_font_size))
+                return True
         return super().eventFilter(source, event)
 
     def closeEvent(self, event):
@@ -557,8 +568,7 @@ class MainWindow(QMainWindow):
         self.file_list.setCurrentRow(self.file_list.count() - 1)
 
     def show_help_dialog(self):
-        help_text = """
-            <b>DatasetQuickView Help</b>
+        help_text = """<b>DatasetQuickView Help</b>
             <br><br>
             <b>Navigation:</b>
             <ul>
@@ -588,7 +598,7 @@ class MainWindow(QMainWindow):
             <ul>
                 <li><b>Recursive:</b> If checked, files will be loaded from sub-directories as well.</li>
                 <li><b>Remember last folder:</b> Opens the last used folder on startup.</li>
-                <li><b>Ctrl + Mouse Scroll:</b> Adjust font size.</li>
-            </ul>
-            """
+                <li><b>Ctrl + Mouse Scroll (over text editor):</b> Adjust font size.</li>
+                <li><b>Ctrl + Mouse Scroll (over file list in thumbnail mode):</b> Adjust thumbnail size.</li>
+            </ul>"""
         QMessageBox.information(self, "Help - DatasetQuickView", help_text)
