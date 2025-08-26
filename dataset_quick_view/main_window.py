@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog, QLabel, QListWidget, QTextEdit
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog, QLabel, QListWidget, QTextEdit, QDialog
 from PyQt6.QtGui import QShortcut, QKeySequence, QFont, QIcon, QAction
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 import os, sys
