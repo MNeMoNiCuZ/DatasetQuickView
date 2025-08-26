@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog, QLabel
 from PyQt6.QtGui import QShortcut, QKeySequence, QFont, QIcon, QAction
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 import os, sys
@@ -120,9 +120,23 @@ class MainWindow(QMainWindow):
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         main_layout.addWidget(self.main_splitter)
 
+        # Container for media viewer
+        media_viewer_container = QWidget()
+        media_viewer_layout = QVBoxLayout(media_viewer_container)
+        media_viewer_layout.setContentsMargins(0,0,0,0)
+        media_viewer_layout.setSpacing(0)
+
+        # Filename display label
+        self.filename_label = QLabel("")
+        self.filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.filename_label.setTextFormat(Qt.TextFormat.RichText)
+        self.filename_label.setStyleSheet("font-size: 16px; padding: 5px; color: white;")
+        media_viewer_layout.addWidget(self.filename_label)
         # Create with an empty dataset first
-        self.file_list = FileListView({})
+        self.file_list = FileListView(self.config, {})
         self.media_viewer = MediaViewer(self.config)
+        self.media_viewer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        media_viewer_layout.addWidget(self.media_viewer)
         
         # --- Text Editor Panel with Toolbar ---
         text_panel_container = QWidget()
@@ -190,86 +204,11 @@ class MainWindow(QMainWindow):
 
 
         self.file_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.media_viewer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        text_panel_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        main_layout.addWidget(self.main_splitter)
-
-        # Create with an empty dataset first
-        self.file_list = FileListView({})
-        self.media_viewer = MediaViewer(self.config)
-        
-        # --- Text Editor Panel with Toolbar ---
-        text_panel_container = QWidget()
-        text_panel_layout = QVBoxLayout(text_panel_container)
-        text_panel_layout.setContentsMargins(0,0,0,0)
-        text_panel_layout.setSpacing(0)
-
-        text_toolbar = QToolBar("Text Toolbar")
-        text_toolbar.setMovable(False)
-        text_toolbar.setStyleSheet("""QToolBar { padding: 5px; }
-        QToolButton#qt_toolbar_ext_button {
-            background-color: #c0c0c0;
-            border: 1px solid #888888;
-            border-radius: 3px;
-            padding: 5px;
-        }""")
-        
-        self.auto_save_checkbox = QCheckBox("Auto-save")
-        self.auto_save_checkbox.setToolTip("Automatically save changes when you move to a new item. If unchecked, you must save manually.")
-        text_toolbar.addWidget(self.auto_save_checkbox)
-
-        save_current_button = QPushButton("Save")
-        save_current_button.setToolTip("Save any changes for the currently selected item (Ctrl+S).")
-        save_current_button.setStyleSheet("padding: 4px 8px;")
-        save_current_button.clicked.connect(self.save_current_item_changes)
-        text_toolbar.addWidget(save_current_button)
-
-        save_all_button = QPushButton("Save All")
-        save_all_button.setToolTip("Save all unsaved changes across all items (Ctrl+Shift+S).")
-        save_all_button.setStyleSheet("padding: 4px 8px;")
-        save_all_button.clicked.connect(self.save_all_changes)
-        text_toolbar.addWidget(save_all_button)
-
-        revert_button = QPushButton("Revert")
-        revert_button.setToolTip("Revert all unsaved changes for the current item.")
-        revert_button.setStyleSheet("padding: 4px 8px;")
-        revert_button.clicked.connect(self.revert_current_item_changes)
-        text_toolbar.addWidget(revert_button)
-
-        revert_all_button = QPushButton("Revert All")
-        revert_all_button.setToolTip("Revert all unsaved changes across all items.")
-        revert_all_button.setStyleSheet("padding: 4px 8px;")
-        revert_all_button.clicked.connect(self.revert_all_changes)
-        text_toolbar.addWidget(revert_all_button)
-        
-        text_toolbar.addSeparator()
-
-        find_replace_button = QPushButton("Find / Replace")
-        find_replace_button.setToolTip("Find and replace text across the dataset (Ctrl+F).")
-        find_replace_button.setStyleSheet("padding: 4px 8px;")
-        find_replace_button.clicked.connect(self.open_find_dialog)
-        text_toolbar.addWidget(find_replace_button)
-
-        prefix_suffix_button = QPushButton("Add Prefix/Suffix")
-        prefix_suffix_button.setToolTip("Add text to the beginning or end of the text files for multiple items.")
-        prefix_suffix_button.setStyleSheet("padding: 4px 8px;")
-        prefix_suffix_button.clicked.connect(self.open_prefix_suffix_dialog)
-        text_toolbar.addWidget(prefix_suffix_button)
-        
-        text_panel_layout.addWidget(text_toolbar)
-
-        self.text_editor_panel = TextEditorPanel(self)
-        text_panel_layout.addWidget(self.text_editor_panel)
-        # --- End Text Editor Panel with Toolbar ---
-
-
-        self.file_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.media_viewer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        media_viewer_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         text_panel_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         self.main_splitter.addWidget(self.file_list)
-        self.main_splitter.addWidget(self.media_viewer)
+        self.main_splitter.addWidget(media_viewer_container)
         self.main_splitter.addWidget(text_panel_container)
         self.apply_layout_settings()
 
@@ -312,6 +251,7 @@ class MainWindow(QMainWindow):
         if current_item is None:
             self.media_viewer.clear_media()
             self.text_editor_panel.load_text_files([], self.current_font_size, self.text_cache)
+            self.filename_label.setText("") # Clear filename label
             return
 
         media_path = current_item.data(Qt.ItemDataRole.UserRole)
@@ -325,6 +265,11 @@ class MainWindow(QMainWindow):
         
         self.media_viewer.set_media(media_path)
         self.text_editor_panel.load_text_files(text_paths, self.current_font_size, self.text_cache)
+
+        # Update filename label
+        base_name = os.path.basename(media_path)
+        name, ext = os.path.splitext(base_name)
+        self.filename_label.setText(f"<b>{name}</b>{ext}")
 
         if text_paths:
             self.text_editor_panel.focus_and_move_cursor_to_end(text_paths[0])
@@ -578,6 +523,7 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self.config, self)
         if dialog.exec():
             self.apply_layout_settings()
+            self.file_list.apply_view_settings() # Apply new view mode
             reply = QMessageBox.question(self, 'Reload Dataset',
                                        "Media format settings have changed. Do you want to reload the dataset to apply them now?",
                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,

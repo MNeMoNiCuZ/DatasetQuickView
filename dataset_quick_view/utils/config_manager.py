@@ -46,6 +46,11 @@ class ConfigManager:
             'Program': {
                 'file_list_width': '250',
                 'text_editor_width': '300'
+            },
+            'FileList': {
+                'view_mode': 'List',
+                'thumbnail_size': '80',
+                'grid_layout': 'false'
             }
         }
         self.load_or_create_config()
