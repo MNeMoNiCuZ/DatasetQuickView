@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QLabel, QScrollArea, QFrame
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QLabel, QScrollArea, QFrame, QPushButton, QInputDialog, QMessageBox
 from PyQt6.QtGui import QPalette, QColor, QTextCharFormat, QTextCursor, QTextDocument
-from PyQt6.QtCore import pyqtSignal, QSignalBlocker
+from PyQt6.QtCore import pyqtSignal, QSignalBlocker, Qt
 import os
 
 class TextEditorPanel(QWidget):
@@ -128,49 +128,55 @@ class TextEditorPanel(QWidget):
 
         if not file_paths:
             self.editors_layout.addWidget(QLabel("No text files for this item. Start typing to create one."))
-            return
+        else:
+            for file_path in file_paths:
+                # Check cache first, otherwise read from file
+                if file_path in text_cache:
+                    content = text_cache[file_path]
+                else:
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                    except FileNotFoundError:
+                        # This is a new file, start with empty content
+                        content = ""
+                    except Exception as e:
+                        content = f"Error reading file: {e}"
+                    # Add to cache regardless of whether it was read or is new
+                    text_cache[file_path] = content
 
-        for file_path in file_paths:
-            # Check cache first, otherwise read from file
-            if file_path in text_cache:
-                content = text_cache[file_path]
-            else:
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                except FileNotFoundError:
-                    # This is a new file, start with empty content
-                    content = ""
-                except Exception as e:
-                    content = f"Error reading file: {e}"
-                # Add to cache regardless of whether it was read or is new
-                text_cache[file_path] = content
+                filename = os.path.basename(file_path)
+                _, ext = os.path.splitext(filename)
+                label = QLabel(f"<b>{ext}</b>")
+                editor = QTextEdit()
+                editor.viewport().installEventFilter(self.main_window)
+                
+                font = editor.font()
+                font.setPointSize(font_size)
+                editor.setFont(font)
+                label.setFont(font)
 
-            filename = os.path.basename(file_path)
-            label = QLabel(f"<b>{filename}</b>")
-            editor = QTextEdit()
-            editor.viewport().installEventFilter(self.main_window)
-            
-            font = editor.font()
-            font.setPointSize(font_size)
-            editor.setFont(font)
-            label.setFont(font)
+                palette = editor.palette()
+                palette.setColor(QPalette.ColorRole.Highlight, QColor('#add8e6'))
+                palette.setColor(QPalette.ColorRole.HighlightedText, QColor('#000000'))
+                editor.setPalette(palette)
 
-            palette = editor.palette()
-            palette.setColor(QPalette.ColorRole.Highlight, QColor('#add8e6'))
-            palette.setColor(QPalette.ColorRole.HighlightedText, QColor('#000000'))
-            editor.setPalette(palette)
+                editor.setPlainText(content)
+                editor.setAcceptRichText(False)
 
-            editor.setPlainText(content)
-            editor.setAcceptRichText(False)
+                editor.selectionChanged.connect(self._on_selection_changed)
+                # Use a lambda to pass the file_path to the slot
+                editor.textChanged.connect(lambda fp=file_path: self._on_text_changed(fp))
 
-            editor.selectionChanged.connect(self._on_selection_changed)
-            # Use a lambda to pass the file_path to the slot
-            editor.textChanged.connect(lambda fp=file_path: self._on_text_changed(fp))
+                self.editors_layout.addWidget(label)
+                self.editors_layout.addWidget(editor)
+                self.text_editors[file_path] = editor
 
-            self.editors_layout.addWidget(label)
-            self.editors_layout.addWidget(editor)
-            self.text_editors[file_path] = editor
+        # Add the '+' button
+        add_button = QPushButton("[ + ]")
+        add_button.setToolTip("Add a new text format for the current item.")
+        add_button.clicked.connect(self._on_add_new_format_clicked)
+        self.editors_layout.addWidget(add_button)
 
     def set_font_for_all(self, font):
         for editor in self.text_editors.values():
@@ -194,3 +200,53 @@ class TextEditorPanel(QWidget):
             cursor.movePosition(QTextCursor.MoveOperation.End)
             editor.setTextCursor(cursor)
             editor.ensureCursorVisible()
+
+    def _on_add_new_format_clicked(self):
+        current_item = self.main_window.file_list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "No Item Selected", "Please select a media file first.")
+            return
+
+        text, ok = QInputDialog.getText(self, 'Add New Format', 'Enter new extension (e.g., .caption):')
+        if ok and text:
+            if not text.startswith('.'):
+                text = '.' + text
+            
+            media_path = current_item.data(Qt.ItemDataRole.UserRole)
+            base, _ = os.path.splitext(media_path)
+            new_text_path = base + text
+
+            # Check if this format already exists for the current item
+            if new_text_path in self.text_editors:
+                QMessageBox.information(self, "Format Exists", f"The format '{text}' already exists for this item.")
+                return
+
+            # Add to dataset and cache
+            self.main_window.dataset.setdefault(media_path, []).append(new_text_path)
+            self.main_window.text_cache[new_text_path] = ""
+            self.main_window.on_text_modified(new_text_path, "") # Mark as dirty
+
+            # Ask to apply to all
+            reply = QMessageBox.question(self, 'Apply to All?', 
+                                       f"Do you want to create an empty '{text}' file for all other items in the dataset?",
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                       QMessageBox.StandardButton.No)
+
+            if reply == QMessageBox.StandardButton.Yes:
+                for m_path in self.main_window.dataset.keys():
+                    if m_path == media_path: continue # Skip current
+                    
+                    m_base, _ = os.path.splitext(m_path)
+                    t_path = m_base + text
+                    
+                    # Add to dataset if it doesn't exist
+                    if t_path not in self.main_window.dataset.get(m_path, []):
+                        self.main_window.dataset.setdefault(m_path, []).append(t_path)
+                    
+                    # Add to cache and mark as dirty if not already there
+                    if t_path not in self.main_window.text_cache:
+                        self.main_window.text_cache[t_path] = ""
+                        self.main_window.on_text_modified(t_path, "")
+
+            # Refresh the view for the current item
+            self.main_window.on_file_selected(current_item, None)
