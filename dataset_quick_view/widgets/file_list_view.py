@@ -241,3 +241,16 @@ class FileListView(QWidget):
 
     def currentItem(self):
         return self.list_widget.currentItem()
+
+    def rename_media_file(self, old_path, new_path):
+        # Update dataset
+        if old_path in self.dataset:
+            self.dataset[new_path] = self.dataset.pop(old_path)
+
+        # Update list widget item
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == old_path:
+                item.setData(Qt.ItemDataRole.UserRole, new_path)
+                item.setText(self.get_display_name(new_path))
+                break

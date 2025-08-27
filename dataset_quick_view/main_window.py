@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog, QLabel, QListWidget, QTextEdit, QDialog
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog, QLabel, QListWidget, QTextEdit, QDialog, QLineEdit, QStackedWidget, QStyle
 from PyQt6.QtGui import QShortcut, QKeySequence, QFont, QIcon, QAction
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 import os, sys, subprocess
@@ -96,10 +96,6 @@ class MainWindow(QMainWindow):
         detach_button.clicked.connect(self.open_detached_viewer)
         toolbar.addWidget(detach_button)
 
-        spacer2 = QWidget()
-        spacer2.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        toolbar.addWidget(spacer2)
-
         settings_button = QPushButton("Settings")
         settings_button.setToolTip("Open the application settings.")
         settings_button.setStyleSheet("padding: 4px 8px;")
@@ -132,12 +128,41 @@ class MainWindow(QMainWindow):
         media_viewer_layout.setContentsMargins(0,0,0,0)
         media_viewer_layout.setSpacing(0)
 
-        # Filename display label
+        # Filename display
+        self.filename_stack = QStackedWidget()
+        self.filename_stack.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.filename_stack.setFixedHeight(40) # Set a fixed height
+        media_viewer_layout.addWidget(self.filename_stack)
+
+        # Display widget (icon + label)
+        self.filename_display_widget = QWidget()
+        filename_layout = QHBoxLayout(self.filename_display_widget)
+        filename_layout.setContentsMargins(0, 0, 0, 0)
+        filename_layout.setSpacing(5)
+        filename_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.edit_icon_label = QLabel("✎")
+        self.edit_icon_label.setStyleSheet("font-size: 16px; color: white;")
+        self.edit_icon_label.setToolTip("Rename file (Double-click name to edit)")
+        self.edit_icon_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.edit_icon_label.installEventFilter(self)
+        filename_layout.addWidget(self.edit_icon_label)
+
         self.filename_label = QLabel("")
-        self.filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.filename_label.setTextFormat(Qt.TextFormat.RichText)
         self.filename_label.setStyleSheet("font-size: 16px; padding: 5px; color: white;")
-        media_viewer_layout.addWidget(self.filename_label)
+        self.filename_label.installEventFilter(self)
+        filename_layout.addWidget(self.filename_label)
+        
+        self.filename_stack.addWidget(self.filename_display_widget)
+
+        # Edit widget
+        self.filename_edit = QLineEdit()
+        self.filename_edit.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.filename_edit.setStyleSheet("font-size: 16px; padding: 5px; color: white; border: 1px solid white;")
+        self.filename_edit.installEventFilter(self)
+        self.filename_stack.addWidget(self.filename_edit)
+
         # Create with an empty dataset first
         self.file_list = FileListView(self.config, {})
         self.media_viewer = MediaViewer(self.config)
@@ -223,11 +248,13 @@ class MainWindow(QMainWindow):
         self.text_editor_panel.text_modified.connect(self.on_text_modified)
         self.recursive_checkbox.toggled.connect(self.update_status) # Update title when toggled
         self.file_list.list_widget.viewport().installEventFilter(self)
+        self.filename_edit.returnPressed.connect(self.commit_rename)
 
     def setup_hotkeys(self):
         QShortcut(QKeySequence("Ctrl+S"), self, self.save_current_item_changes)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, self.save_all_changes)
         QShortcut(QKeySequence("Ctrl+F"), self, self.open_find_dialog)
+        QShortcut(QKeySequence(Qt.Key.Key_F2), self, self.start_rename)
         QShortcut(QKeySequence("Alt+Right"), self, lambda: self.navigate_files(1))
         QShortcut(QKeySequence("Alt+Left"), self, lambda: self.navigate_files(-1))
         QShortcut(QKeySequence("Alt+End"), self, self.select_last_item)
@@ -250,6 +277,8 @@ class MainWindow(QMainWindow):
         self.config.save_config()
 
     def on_file_selected(self, current_item, previous_item):
+        if self.filename_stack.currentWidget() == self.filename_edit:
+            self.cancel_rename()
         if previous_item is not None and self.auto_save_checkbox.isChecked():
             self.save_item_changes(previous_item.data(Qt.ItemDataRole.UserRole))
 
@@ -442,6 +471,14 @@ class MainWindow(QMainWindow):
         self.main_splitter.setStretchFactor(2, 0)
 
     def eventFilter(self, source, event):
+        if (event.type() == QEvent.Type.MouseButtonDblClick and source == self.filename_label) or \
+           (event.type() == QEvent.Type.MouseButtonPress and source == self.edit_icon_label):
+            self.start_rename()
+            return True
+        if event.type() == QEvent.Type.KeyPress and source == self.filename_edit:
+            if event.key() == Qt.Key.Key_Escape:
+                self.cancel_rename()
+                return True
         if event.type() == QEvent.Type.Wheel and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             parent = source.parent()
             if isinstance(parent, QListWidget):
@@ -463,6 +500,82 @@ class MainWindow(QMainWindow):
                 self.config.set_setting('Display', 'font_size', str(self.current_font_size))
                 return True
         return super().eventFilter(source, event)
+
+    def start_rename(self):
+        current_item = self.file_list.currentItem()
+        if not current_item:
+            return
+        
+        media_path = current_item.data(Qt.ItemDataRole.UserRole)
+        base_name = os.path.basename(media_path)
+        name, _ = os.path.splitext(base_name)
+
+        self.filename_stack.setCurrentWidget(self.filename_edit)
+        self.filename_edit.setText(name)
+        self.filename_edit.setFocus()
+        self.filename_edit.selectAll()
+
+    def cancel_rename(self):
+        self.filename_stack.setCurrentWidget(self.filename_display_widget)
+
+    def commit_rename(self):
+        current_item = self.file_list.currentItem()
+        if not current_item:
+            self.cancel_rename()
+            return
+
+        old_media_path = current_item.data(Qt.ItemDataRole.UserRole)
+        directory = os.path.dirname(old_media_path)
+        _, ext = os.path.splitext(old_media_path)
+        
+        new_name = self.filename_edit.text()
+        if not new_name or new_name.isspace():
+            QMessageBox.warning(self, "Invalid Name", "Filename cannot be empty.")
+            self.cancel_rename()
+            return
+
+        new_media_path = os.path.join(directory, new_name + ext)
+
+        if old_media_path == new_media_path:
+            self.cancel_rename()
+            return
+
+        if os.path.exists(new_media_path):
+            QMessageBox.warning(self, "Rename Failed", f"A file named '{os.path.basename(new_media_path)}' already exists.")
+            return
+
+        try:
+            # Rename media file
+            os.rename(old_media_path, new_media_path)
+
+            # Rename associated text files
+            old_text_paths = self.dataset.get(old_media_path, [])
+            new_text_paths = []
+            for old_text_path in old_text_paths:
+                _, text_ext = os.path.splitext(old_text_path)
+                new_text_path = os.path.join(directory, new_name + text_ext)
+                if os.path.exists(old_text_path):
+                    os.rename(old_text_path, new_text_path)
+                new_text_paths.append(new_text_path)
+
+            # Update dataset
+            self.dataset[new_media_path] = new_text_paths
+            del self.dataset[old_media_path]
+
+            # Update file list
+            self.file_list.rename_media_file(old_media_path, new_media_path)
+
+            # Update UI
+            self.filename_label.setText(f"<b>{new_name}</b>{ext}")
+            self.cancel_rename()
+            self.statusBar().showMessage(f"Renamed to {new_name}{ext}", 3000)
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Could not rename file: {e}")
+            # Attempt to revert changes if something went wrong
+            if os.path.exists(new_media_path) and not os.path.exists(old_media_path):
+                os.rename(new_media_path, old_media_path)
+            self.cancel_rename()
 
     def closeEvent(self, event):
         if self.dirty_files:
