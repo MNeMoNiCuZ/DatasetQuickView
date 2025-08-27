@@ -2,7 +2,6 @@ from PyQt6.QtWidgets import QWidget, QListWidget, QListWidgetItem, QVBoxLayout, 
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QObject, QThread
 from PyQt6.QtGui import QFont, QColor, QPixmap, QIcon
 import os
-from .list_item_delegate import ListItemDelegate
 
 class ThumbnailWorker(QObject):
     thumbnail_ready = pyqtSignal(int, QIcon)
@@ -21,7 +20,6 @@ class FileListView(QWidget):
         super().__init__()
         self.config = config
         self.dataset = dataset if dataset is not None else {}
-        self.found_files = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -58,17 +56,9 @@ class FileListView(QWidget):
         layout.addLayout(nav_layout)
 
         self.list_widget = QListWidget()
-        self.item_delegate = ListItemDelegate(self.list_widget)
-        self.list_widget.setItemDelegate(self.item_delegate)
         self.list_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
-        self.list_widget.setStyleSheet("""
-            QListWidget { 
-                border: none; 
-                background-color: #333333;
-            }
-            QListWidget::item {
-                border: 1px solid transparent; /* Add a transparent border */
-            }
+        self.list_widget.setStyleSheet(""" 
+            QListWidget { border: none; }
             QListWidget::item:selected {
                 background-color: transparent;
                 border: 2px solid white;
@@ -96,11 +86,6 @@ class FileListView(QWidget):
 
         self.apply_view_settings()
 
-    def set_find_results(self, found_files):
-        self.found_files = found_files
-        self.item_delegate.set_found_files(found_files)
-        self.list_widget.update()
-
     def apply_view_settings(self):
         current_media_path = None
         current_item = self.list_widget.currentItem()
@@ -116,7 +101,7 @@ class FileListView(QWidget):
         if view_mode == 'Thumbnails':
             self.list_widget.setViewMode(QListWidget.ViewMode.IconMode)
             self.list_widget.setIconSize(QSize(thumb_size, thumb_size))
-            self.list_widget.setSpacing(0)
+            self.list_widget.setSpacing(5) # Add spacing between items
             if grid_layout:
                 self.list_widget.setResizeMode(QListWidget.ResizeMode.Adjust)
                 self.list_widget.setMovement(QListWidget.Movement.Static)
@@ -159,7 +144,7 @@ class FileListView(QWidget):
                 # Add task for background processing
                 self._thumbnail_tasks.append((row, file_path, thumb_size))
                 # Set a fixed size hint for the item to ensure proper spacing
-                item.setSizeHint(QSize(thumb_size, thumb_size))
+                item.setSizeHint(QSize(thumb_size + 20, thumb_size + 20)) # Add some padding
 
             self.list_widget.addItem(item)
         self.update_progress(self.list_widget.currentRow(), self.count())

@@ -158,7 +158,6 @@ class FindReplaceDialog(QDialog):
 
         if not text:
             self.global_search_results = []
-            self.main_window.file_list.set_find_results(set())
             self.status_label.setText("Enter text to find.")
             self.replace_button.setEnabled(False)
             self.replace_and_next_button.setEnabled(False)
@@ -172,9 +171,7 @@ class FindReplaceDialog(QDialog):
 
     def _build_global_search_index(self, find_text):
         self.global_search_results = []
-        if not find_text: 
-            self.main_window.file_list.set_find_results(set())
-            return
+        if not find_text: return
 
         find_flags = QTextDocument.FindFlag(0)
         if self.case_sensitive_checkbox.isChecked():
@@ -198,9 +195,6 @@ class FindReplaceDialog(QDialog):
                     self.global_search_results.append((media_path, text_path, cursor.selectionStart(), cursor.selectionEnd() - cursor.selectionStart()))
         
         self.global_search_results.sort(key=lambda x: (x[0], x[1], x[2]))
-        
-        found_media_files = {result[0] for result in self.global_search_results}
-        self.main_window.file_list.set_find_results(found_media_files)
 
     def _read_file_content(self, path):
         try:
