@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QToolBar, QCheckBox, QSizePolicy, QPushButton, QFrame, QMessageBox, QFileDialog, QLabel, QListWidget, QTextEdit, QDialog
 from PyQt6.QtGui import QShortcut, QKeySequence, QFont, QIcon, QAction
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
-import os, sys
+import os, sys, subprocess
 
 from .utils.file_handler import find_dataset_files
 from .utils.config_manager import ConfigManager
@@ -79,6 +79,12 @@ class MainWindow(QMainWindow):
         self.recursive_checkbox = QCheckBox("Recursive")
         self.recursive_checkbox.setToolTip("Search for media in sub-folders as well.")
         toolbar.addWidget(self.recursive_checkbox)
+
+        open_file_dir_button = QPushButton("Open Folder")
+        open_file_dir_button.setToolTip("Open the directory containing the selected file.")
+        open_file_dir_button.setStyleSheet("padding: 4px 8px;")
+        open_file_dir_button.clicked.connect(self.open_selected_file_directory)
+        toolbar.addWidget(open_file_dir_button)
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -602,3 +608,46 @@ class MainWindow(QMainWindow):
                 <li><b>Ctrl + Mouse Scroll (over file list in thumbnail mode):</b> Adjust thumbnail size.</li>
             </ul>"""
         QMessageBox.information(self, "Help - DatasetQuickView", help_text)
+
+    def open_selected_file_directory(self):
+        current_item = self.file_list.currentItem()
+        if not current_item:
+            self.statusBar().showMessage("No file selected.", 3000)
+            return
+
+        media_path = current_item.data(Qt.ItemDataRole.UserRole)
+
+        try:
+            if sys.platform == "win32":
+                import ctypes
+                from ctypes import wintypes
+                
+                normalized_path = os.path.normpath(media_path)
+                
+                class ITEMIDLIST(ctypes.Structure):
+                    pass
+                
+                ctypes.windll.shell32.ILCreateFromPathW.argtypes = [wintypes.LPCWSTR]
+                ctypes.windll.shell32.ILCreateFromPathW.restype = ctypes.POINTER(ITEMIDLIST)
+                
+                ctypes.windll.shell32.SHOpenFolderAndSelectItems.argtypes = [
+                    ctypes.POINTER(ITEMIDLIST),
+                    wintypes.UINT,
+                    ctypes.POINTER(ctypes.POINTER(ITEMIDLIST)),
+                    wintypes.DWORD
+                ]
+                
+                pidl = ctypes.windll.shell32.ILCreateFromPathW(normalized_path)
+                if pidl:
+                    try:
+                        ctypes.windll.shell32.SHOpenFolderAndSelectItems(pidl, 0, None, 0)
+                    finally:
+                        ctypes.windll.shell32.ILFree(pidl)
+
+            elif sys.platform == "darwin":
+                subprocess.Popen(['open', '-R', media_path])
+            else:
+                directory = os.path.dirname(media_path)
+                subprocess.Popen(['xdg-open', directory])
+        except Exception as e:
+            self.statusBar().showMessage(f"Error opening directory: {e}", 5000)
