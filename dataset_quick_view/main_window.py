@@ -80,6 +80,13 @@ class MainWindow(QMainWindow):
         self.recursive_checkbox.setToolTip("Search for media in sub-folders as well.")
         toolbar.addWidget(self.recursive_checkbox)
 
+        refresh_button = QPushButton("")
+        refresh_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        refresh_button.setToolTip("Refresh the current dataset.")
+        refresh_button.setStyleSheet("padding: 4px 8px;")
+        refresh_button.clicked.connect(self.refresh_dataset)
+        toolbar.addWidget(refresh_button)
+
         open_file_dir_button = QPushButton("Open Folder")
         open_file_dir_button.setToolTip("Open the directory containing the selected file.")
         open_file_dir_button.setStyleSheet("padding: 4px 8px;")
@@ -636,6 +643,34 @@ class MainWindow(QMainWindow):
             self.file_list.setCurrentRow(0)
 
         self.setWindowTitle(f"DatasetQuickView - {self.folder_path}")
+
+    def refresh_dataset(self):
+        if self.dirty_files:
+            reply = QMessageBox.question(self, 'Unsaved Changes',
+                                       "You have unsaved changes. Do you want to save them before refreshing?",
+                                       QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+                                       QMessageBox.StandardButton.Cancel)
+
+            if reply == QMessageBox.StandardButton.Save:
+                self.save_all_changes()
+            elif reply == QMessageBox.StandardButton.Cancel:
+                return
+
+        self.text_cache = {}
+        self.dirty_files = set()
+        self.dataset = find_dataset_files(self.folder_path, self.recursive_checkbox.isChecked())
+
+        if not self.dataset:
+            self.statusBar().showMessage(f"No media files found in {self.folder_path}.", 5000)
+            self.file_list.list_widget.clear()
+            self.file_list.update_progress(0, 0)
+            self.text_editor_panel.load_text_files([], self.current_font_size, self.text_cache)
+            self.media_viewer.clear_media()
+        else:
+            self.file_list.dataset = self.dataset
+            self.file_list.populate_list(self.dataset.keys())
+            self.file_list.setCurrentRow(0)
+        self.update_status()
 
     def open_find_dialog(self):
         if not hasattr(self, 'find_dialog') or self.find_dialog is None:
