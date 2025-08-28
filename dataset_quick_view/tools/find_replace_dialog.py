@@ -74,6 +74,7 @@ class FindReplaceDialog(QDialog):
         self.replace_and_next_button.clicked.connect(self.replace_and_find_next)
         self.replace_all_button.clicked.connect(self.replace_all)
         self.main_window.file_loaded.connect(self.resume_search)
+        self.text_editor_panel.text_modified.connect(self.on_external_text_change)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -93,6 +94,10 @@ class FindReplaceDialog(QDialog):
             except TypeError:
                 pass
             editor.selectionChanged.connect(self.text_editor_panel._on_selection_changed)
+        try:
+            self.text_editor_panel.text_modified.disconnect(self.on_external_text_change)
+        except TypeError:
+            pass
         super().closeEvent(event)
 
     def sync_to_media_item(self, media_path):
@@ -185,7 +190,12 @@ class FindReplaceDialog(QDialog):
         for media_path, text_paths in self.main_window.dataset.items():
             for text_path in text_paths:
                 editor = self.text_editor_panel.text_editors.get(text_path)
-                content = editor.toPlainText() if editor else self._read_file_content(text_path)
+                if editor:
+                    content = editor.toPlainText()
+                elif text_path in self.main_window.text_cache:
+                    content = self.main_window.text_cache[text_path]
+                else:
+                    content = self._read_file_content(text_path)
                 if content is None: continue
                 
                 doc = QTextDocument()
@@ -322,6 +332,10 @@ class FindReplaceDialog(QDialog):
             self.search_pending = False
             self.update_highlights_for_all_editors()
             self._jump_to_result(self.current_result_index)
+
+    def on_external_text_change(self, file_path, new_content):
+        if self.isVisible() and self.find_input.text():
+            self.update_find_count(self.find_input.text())
 
     def replace_one(self):
         if self.current_result_index == -1:
