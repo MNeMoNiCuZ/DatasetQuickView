@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QComboBox, QLabel, QCheckBox, QTextEdit, QMessageBox
 from PyQt6.QtGui import QTextDocument, QTextCursor, QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 import os
 import logging
 import re
@@ -18,6 +18,11 @@ class FindReplaceDialog(QDialog):
         self.current_result_index = -1
         self.search_direction = 0
         self.search_pending = False
+        self.is_jumping = False
+
+        self.search_update_timer = QTimer(self)
+        self.search_update_timer.setSingleShot(True)
+        self.search_update_timer.setInterval(200)
 
         main_layout = QVBoxLayout(self)
         form_layout = QVBoxLayout()
@@ -75,6 +80,7 @@ class FindReplaceDialog(QDialog):
         self.replace_all_button.clicked.connect(self.replace_all)
         self.main_window.file_loaded.connect(self.resume_search)
         self.text_editor_panel.text_modified.connect(self.on_external_text_change)
+        self.search_update_timer.timeout.connect(self._perform_search_update)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -102,6 +108,9 @@ class FindReplaceDialog(QDialog):
 
     def sync_to_media_item(self, media_path):
         """Resets the search context to the specified media item."""
+        if self.is_jumping: # If we are in the middle of a jump, do nothing
+            return
+            
         if not self.find_input.text() or not self.global_search_results:
             return
 
@@ -171,6 +180,19 @@ class FindReplaceDialog(QDialog):
         
         self._build_global_search_index(text)
         total_found = len(self.global_search_results)
+        
+        if total_found > 0:
+            # Try to find the first result on the current media item
+            current_media_item = self.main_window.file_list.currentItem()
+            if current_media_item:
+                current_media_path = current_media_item.data(Qt.ItemDataRole.UserRole)
+                for i, result in enumerate(self.global_search_results):
+                    if result[0] == current_media_path:
+                        self.current_result_index = i
+                        self._jump_to_result(i)
+                        return # We're done, _jump_to_result will update the status
+
+        # If no result on current item, or no item selected, just show total.
         self.status_label.setText(f"Found {total_found} occurrence(s)." if total_found > 0 else "No occurrences found.")
         self._update_replace_button_state()
 
@@ -262,6 +284,7 @@ class FindReplaceDialog(QDialog):
         if not (0 <= index < len(self.global_search_results)):
             return
 
+        self.is_jumping = True  # Set the flag before changing the file list
         media_path, text_path, position, length = self.global_search_results[index]
         
         current_media_item = self.main_window.file_list.currentItem()
@@ -278,6 +301,7 @@ class FindReplaceDialog(QDialog):
             self._highlight_result(text_path, position, length)
         
         self._update_status_label()
+        self.is_jumping = False # Reset the flag
 
     def _highlight_result(self, text_path, position, length):
         editor = self.text_editor_panel.text_editors.get(text_path)
@@ -335,7 +359,10 @@ class FindReplaceDialog(QDialog):
 
     def on_external_text_change(self, file_path, new_content):
         if self.isVisible() and self.find_input.text():
-            self.update_find_count(self.find_input.text())
+            self.search_update_timer.start()
+
+    def _perform_search_update(self):
+        self.update_find_count(self.find_input.text())
 
     def replace_one(self):
         if self.current_result_index == -1:
