@@ -427,52 +427,105 @@ class FindReplaceDialog(QDialog):
     def replace_all(self):
         find_text = self.find_input.text()
         replace_text = self.replace_input.text()
-        if not find_text: return
+        if not find_text or not self.global_search_results:
+            return
 
-        scope_index = self.scope_combo.currentIndex()
-        # This is a complex operation, for now, we'll simplify it to the visible editors
-        # A full implementation would handle files on disk.
-        
-        editors_to_process = self._get_editors_from_scope()
-        if not editors_to_process:
-             QMessageBox.warning(self, "Replace All", "No files found in the selected scope.")
-             return
+        # Group replacements by file path
+        replacements_by_file = {}
+        for media_path, text_path, position, length in self.global_search_results:
+            if text_path not in replacements_by_file:
+                replacements_by_file[text_path] = []
+            replacements_by_file[text_path].append((position, length))
 
         total_replacements = 0
-        for editor in editors_to_process:
-            content = editor.toPlainText()
-            flags = re.IGNORECASE if not self.case_sensitive_checkbox.isChecked() else 0
-            search_term = re.escape(find_text)
-            if self.whole_words_checkbox.isChecked():
-                search_term = r'\b' + search_term + r'\b'
+        files_changed = 0
 
-            new_content, count = re.subn(search_term, replace_text, content, flags=flags)
-            if count > 0:
-                total_replacements += count
-                editor.setPlainText(new_content)
-        
-        self.status_label.setText(f"Made {total_replacements} replacement(s).")
-        self.update_find_count(find_text)
+        confirm_message = (
+            f"Are you sure you want to replace all {len(self.global_search_results)} occurrences of '{find_text}' "
+            f"with '{replace_text}' in {len(replacements_by_file)} file(s)?\n\n"
+            "This action cannot be undone."
+        )
+        reply = QMessageBox.question(self, 'Confirm Replace All', confirm_message,
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
 
-    def _get_editors_from_scope(self):
+        if reply == QMessageBox.StandardButton.No:
+            self.status_label.setText("Replace all cancelled.")
+            return
+
+        for file_path, replacements in replacements_by_file.items():
+            try:
+                # Read from cache if available, otherwise from disk
+                if file_path in self.main_window.text_cache:
+                    content = self.main_window.text_cache[file_path]
+                else:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+
+                # Apply replacements from the end to avoid shifting indices
+                replacements.sort(key=lambda x: x[0], reverse=True)
+                
+                count_in_file = 0
+                for pos, length in replacements:
+                    # Check if the text to be replaced still matches the find_text
+                    # This is a safeguard against replacing the wrong text if the file has changed
+                    if content[pos:pos+length].lower() == find_text.lower() or \
+                       (self.case_sensitive_checkbox.isChecked() and content[pos:pos+length] == find_text):
+                        content = content[:pos] + replace_text + content[pos+length:]
+                        count_in_file += 1
+
+                if count_in_file > 0:
+                    total_replacements += count_in_file
+                    files_changed += 1
+                    # Write back to disk
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    
+                    # Update editor if open
+                    editor = self.text_editor_panel.text_editors.get(file_path)
+                    if editor:
+                        editor.blockSignals(True)
+                        cursor_pos = editor.textCursor().position()
+                        editor.setPlainText(content)
+                        cursor = editor.textCursor()
+                        cursor.setPosition(cursor_pos)
+                        editor.setTextCursor(cursor)
+                        editor.blockSignals(False)
+
+                    # Update cache
+                    self.main_window.text_cache[file_path] = content
+
+            except Exception as e:
+                logger.error(f"Error processing file {file_path}: {e}")
+                QMessageBox.warning(self, "Error", f"Could not process file: {file_path}\n{e}")
+
+        self.status_label.setText(f"Made {total_replacements} replacement(s) in {files_changed} file(s).")
+        self.update_find_count(self.find_input.text())
+
+    def _get_files_from_scope(self):
         scope_index = self.scope_combo.currentIndex()
-        all_editors = self.text_editor_panel.text_editors
+        all_files = list(self.main_window.dataset.keys())
 
         if scope_index == 2: # All associated files
-            return list(all_editors.values())
-        
-        current_editor = self.text_editor_panel.get_current_editor()
-        if not isinstance(current_editor, QTextEdit):
-            current_editor = list(all_editors.values())[0] if all_editors else None
-        if not current_editor: return []
+            all_text_files = []
+            for media_path in all_files:
+                all_text_files.extend(self.main_window.dataset[media_path])
+            return all_text_files
 
+        current_media_item = self.main_window.file_list.currentItem()
+        if not current_media_item:
+            return []
+        current_media_path = current_media_item.data(Qt.ItemDataRole.UserRole)
+        
         if scope_index == 0: # Current file only
-            return [current_editor]
+            return self.main_window.dataset.get(current_media_path, [])
 
         if scope_index == 1: # Files with same extension
-            current_path = next((path for path, editor in all_editors.items() if editor == current_editor), None)
-            if not current_path: return []
-            _, current_ext = os.path.splitext(current_path)
-            return [editor for path, editor in all_editors.items() if path.endswith(current_ext)]
+            _, current_ext = os.path.splitext(current_media_path)
+            same_ext_files = []
+            for media_path in all_files:
+                if media_path.endswith(current_ext):
+                    same_ext_files.extend(self.main_window.dataset[media_path])
+            return same_ext_files
         
         return []
