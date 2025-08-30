@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QMessageBox, QTextEdit
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QMessageBox, QTextEdit
 from PyQt6.QtCore import Qt, QSignalBlocker
 import os
 import logging
@@ -6,34 +6,19 @@ from .scope_widget import ScopeWidget
 
 logger = logging.getLogger(__name__)
 
-class PrefixSuffixDialog(QDialog):
-    _last_prefix = ""
-    _last_suffix = ""
-
+class ClearWhitespaceDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Add Prefix/Suffix")
+        self.setWindowTitle("Clear Leading/Trailing Whitespace")
         self.text_editor_panel = self.parent().text_editor_panel
 
         main_layout = QVBoxLayout(self)
         form_layout = QVBoxLayout()
         button_layout = QHBoxLayout()
 
-        self.prefix_input = QLineEdit()
-        self.prefix_input.setPlaceholderText("Enter prefix...")
-        self.suffix_input = QLineEdit()
-        self.suffix_input.setPlaceholderText("Enter suffix...")
-        
-        self.prefix_input.setText(PrefixSuffixDialog._last_prefix)
-        self.suffix_input.setText(PrefixSuffixDialog._last_suffix)
-        
         self.scope_widget = ScopeWidget(self)
         self.apply_button = QPushButton("Apply")
 
-        form_layout.addWidget(QLabel("Prefix:"))
-        form_layout.addWidget(self.prefix_input)
-        form_layout.addWidget(QLabel("Suffix:"))
-        form_layout.addWidget(self.suffix_input)
         form_layout.addWidget(self.scope_widget)
 
         button_layout.addStretch()
@@ -45,9 +30,6 @@ class PrefixSuffixDialog(QDialog):
         self.apply_button.clicked.connect(self.apply_changes)
 
     def apply_changes(self):
-        prefix = self.prefix_input.text()
-        suffix = self.suffix_input.text()
-        
         targets_to_modify = self.scope_widget.get_targets()
         if not targets_to_modify:
             return
@@ -55,7 +37,7 @@ class PrefixSuffixDialog(QDialog):
         scope_index = self.scope_widget.scope_combo.currentIndex()
         if scope_index in [2, 3]:
             reply = QMessageBox.question(self, 'Confirm Apply to All',
-                                         f"Are you sure you want to add prefix/suffix to ALL {len(targets_to_modify)} targeted text files?\n\nThis action is irreversible.",
+                                         f"Are you sure you want to clear whitespace in ALL {len(targets_to_modify)} targeted text files?\n\nThis action is irreversible.",
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                          QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.No:
@@ -89,26 +71,21 @@ class PrefixSuffixDialog(QDialog):
             if file_path is None or original_text is None:
                 continue
 
-            new_text = f"{prefix}{original_text}{suffix}"
+            new_text = original_text.strip()
 
-            self.parent().on_text_modified(file_path, new_text)
-            modified_files.add(file_path)
+            if new_text != original_text:
+                self.parent().on_text_modified(file_path, new_text)
+                modified_files.add(file_path)
 
-            open_editor = self.text_editor_panel.text_editors.get(file_path)
-            if open_editor:
-                blocker = QSignalBlocker(open_editor)
-                open_editor.setPlainText(new_text)
+                open_editor = self.text_editor_panel.text_editors.get(file_path)
+                if open_editor:
+                    blocker = QSignalBlocker(open_editor)
+                    open_editor.setPlainText(new_text)
 
         modified_files_count = len(modified_files)
         if modified_files_count > 0:
-            QMessageBox.information(self, 'Apply Complete', f"Successfully applied prefix/suffix to {modified_files_count} file(s).")
-        
-        PrefixSuffixDialog._last_prefix = prefix
-        PrefixSuffixDialog._last_suffix = suffix
+            QMessageBox.information(self, 'Apply Complete', f"Successfully cleared whitespace in {modified_files_count} file(s).")
+        else:
+            QMessageBox.information(self, 'No Changes', "No leading or trailing whitespace was found in the targeted files.")
 
         self.close()
-
-    def closeEvent(self, event):
-        PrefixSuffixDialog._last_prefix = self.prefix_input.text()
-        PrefixSuffixDialog._last_suffix = self.suffix_input.text()
-        super().closeEvent(event)

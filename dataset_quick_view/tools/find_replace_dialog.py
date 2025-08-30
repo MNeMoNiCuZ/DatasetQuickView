@@ -1,15 +1,18 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QComboBox, QLabel, QCheckBox, QTextEdit, QMessageBox
-from PyQt6.QtGui import QTextDocument, QTextCursor, QColor
+from PyQt6.QtWidgets import QDialog, QMessageBox, QTextEdit
+from PyQt6.QtGui import QTextDocument, QTextCursor
 from PyQt6.QtCore import Qt, QTimer
 import os
 import logging
 import re
 
+from ..ui.find_replace_dialog_ui import Ui_FindReplaceDialog
+
 logger = logging.getLogger(__name__)
 
-class FindReplaceDialog(QDialog):
+class FindReplaceDialog(QDialog, Ui_FindReplaceDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setupUi(self)
         self.setWindowTitle("Find and Replace")
         self.main_window = parent
         self.text_editor_panel = self.main_window.text_editor_panel
@@ -23,52 +26,6 @@ class FindReplaceDialog(QDialog):
         self.search_update_timer = QTimer(self)
         self.search_update_timer.setSingleShot(True)
         self.search_update_timer.setInterval(200)
-
-        main_layout = QVBoxLayout(self)
-        form_layout = QVBoxLayout()
-        button_layout = QHBoxLayout()
-
-        self.find_input = QLineEdit()
-        self.find_input.setPlaceholderText("Find...")
-        self.replace_input = QLineEdit()
-        self.replace_input.setPlaceholderText("Replace with...")
-        
-        self.scope_combo = QComboBox()
-        self.scope_combo.addItems(["Current file only", "Files with same extension", "All associated files"])
-        self.scope_combo.setCurrentIndex(0)
-
-        self.case_sensitive_checkbox = QCheckBox("Case sensitive")
-        self.whole_words_checkbox = QCheckBox("Whole words")
-
-        self.status_label = QLabel("Enter text to find.")
-
-        self.find_prev_button = QPushButton("Find Previous")
-        self.find_next_button = QPushButton("Find Next")
-        self.replace_button = QPushButton("Replace")
-        self.replace_button.setEnabled(False)
-        self.replace_all_button = QPushButton("Replace All")
-        self.replace_all_button.setToolTip("Replace all occurrences in the selected scope.")
-        self.replace_and_next_button = QPushButton("Replace && Next")
-
-        form_layout.addWidget(QLabel("Find:"))
-        form_layout.addWidget(self.find_input)
-        form_layout.addWidget(QLabel("Replace:"))
-        form_layout.addWidget(self.replace_input)
-        form_layout.addWidget(QLabel("Scope:"))
-        form_layout.addWidget(self.scope_combo)
-        form_layout.addWidget(self.case_sensitive_checkbox)
-        form_layout.addWidget(self.whole_words_checkbox)
-        form_layout.addWidget(self.status_label)
-
-        button_layout.addStretch()
-        button_layout.addWidget(self.find_prev_button)
-        button_layout.addWidget(self.find_next_button)
-        button_layout.addWidget(self.replace_button)
-        button_layout.addWidget(self.replace_and_next_button)
-        button_layout.addWidget(self.replace_all_button)
-
-        main_layout.addLayout(form_layout)
-        main_layout.addLayout(button_layout)
 
         self.find_input.textChanged.connect(self.update_find_count)
         self.case_sensitive_checkbox.stateChanged.connect(self.update_highlights_for_all_editors)
@@ -209,13 +166,13 @@ class FindReplaceDialog(QDialog):
         if self.whole_words_checkbox.isChecked():
             find_flags |= QTextDocument.FindFlag.FindWholeWords
 
-        for media_path, text_paths in self.main_window.dataset.items():
+        for media_path, text_paths in self.main_window.app_state.dataset.items():
             for text_path in text_paths:
                 editor = self.text_editor_panel.text_editors.get(text_path)
                 if editor:
                     content = editor.toPlainText()
-                elif text_path in self.main_window.text_cache:
-                    content = self.main_window.text_cache[text_path]
+                elif text_path in self.main_window.app_state.text_cache:
+                    content = self.main_window.app_state.text_cache[text_path]
                 else:
                     content = self._read_file_content(text_path)
                 if content is None: continue
@@ -396,7 +353,6 @@ class FindReplaceDialog(QDialog):
 
         replace_text = self.replace_input.text()
         cursor.insertText(replace_text)
-        logger.debug(f"Replaced '{find_text}' with '{replace_text}' at {position} in {text_path}")
 
         # Invalidate the current index and rebuild to reflect the change
         self.update_find_count(find_text)
@@ -470,7 +426,7 @@ class FindReplaceDialog(QDialog):
         confirm_message = (
             f"Are you sure you want to replace all {len(self.global_search_results)} occurrences of '{find_text}' "
             f"with '{replace_text}' in {len(replacements_by_file)} file(s)?\n\n"
-            "This action cannot be undone."
+            "This action is irreversible."
         )
         reply = QMessageBox.question(self, 'Confirm Replace All', confirm_message,
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -483,8 +439,8 @@ class FindReplaceDialog(QDialog):
         for file_path, replacements in replacements_by_file.items():
             try:
                 # Read from cache if available, otherwise from disk
-                if file_path in self.main_window.text_cache:
-                    content = self.main_window.text_cache[file_path]
+                if file_path in self.main_window.app_state.text_cache:
+                    content = self.main_window.app_state.text_cache[file_path]
                 else:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
@@ -520,7 +476,7 @@ class FindReplaceDialog(QDialog):
                         editor.blockSignals(False)
 
                     # Update cache
-                    self.main_window.text_cache[file_path] = content
+                    self.main_window.app_state.text_cache[file_path] = content
 
             except Exception as e:
                 logger.error(f"Error processing file {file_path}: {e}")
@@ -531,12 +487,12 @@ class FindReplaceDialog(QDialog):
 
     def _get_files_from_scope(self):
         scope_index = self.scope_combo.currentIndex()
-        all_files = list(self.main_window.dataset.keys())
+        all_files = list(self.main_window.app_state.dataset.keys())
 
         if scope_index == 2: # All associated files
             all_text_files = []
             for media_path in all_files:
-                all_text_files.extend(self.main_window.dataset[media_path])
+                all_text_files.extend(self.main_window.app_state.dataset[media_path])
             return all_text_files
 
         current_media_item = self.main_window.file_list.currentItem()
@@ -545,14 +501,14 @@ class FindReplaceDialog(QDialog):
         current_media_path = current_media_item.data(Qt.ItemDataRole.UserRole)
         
         if scope_index == 0: # Current file only
-            return self.main_window.dataset.get(current_media_path, [])
+            return self.main_window.app_state.dataset.get(current_media_path, [])
 
         if scope_index == 1: # Files with same extension
             _, current_ext = os.path.splitext(current_media_path)
             same_ext_files = []
             for media_path in all_files:
                 if media_path.endswith(current_ext):
-                    same_ext_files.extend(self.main_window.dataset[media_path])
+                    same_ext_files.extend(self.main_window.app_state.dataset[media_path])
             return same_ext_files
         
         return []

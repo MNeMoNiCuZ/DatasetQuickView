@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QLabel, QScrollArea, QFrame, QPushButton, QInputDialog, QMessageBox
 from PyQt6.QtGui import QPalette, QColor, QTextCharFormat, QTextCursor, QTextDocument
-from PyQt6.QtCore import pyqtSignal, QSignalBlocker, Qt
+from PyQt6.QtCore import pyqtSignal, QSignalBlocker, Qt, QEvent
 import os
 
 class TextEditorPanel(QWidget):
@@ -30,6 +30,23 @@ class TextEditorPanel(QWidget):
 
         self.primary_highlight_color = QColor("#BDBDBD")
         self.secondary_highlight_color = QColor("#E0E0E0")
+        self.base_stylesheet = "QTextEdit { border-radius: 5px; }"
+        self.active_editor_stylesheet = "QTextEdit { border: 2px solid #5E94FF; border-radius: 5px; }"
+
+    def eventFilter(self, source, event):
+        if isinstance(source, QTextEdit):
+            if event.type() == QEvent.Type.FocusIn:
+                self.update_focus_highlight(source)
+            elif event.type() == QEvent.Type.FocusOut:
+                self.update_focus_highlight(None)
+        return super().eventFilter(source, event)
+
+    def update_focus_highlight(self, focused_editor):
+        for editor in self.text_editors.values():
+            if editor == focused_editor:
+                editor.setStyleSheet(self.active_editor_stylesheet)
+            else:
+                editor.setStyleSheet(self.base_stylesheet)
 
     def clear_highlights(self, editor=None):
         editors_to_clear = [editor] if editor else self.text_editors.values()
@@ -160,10 +177,12 @@ class TextEditorPanel(QWidget):
                 palette.setColor(QPalette.ColorRole.Highlight, QColor('#add8e6'))
                 palette.setColor(QPalette.ColorRole.HighlightedText, QColor('#000000'))
                 editor.setPalette(palette)
+                editor.setStyleSheet(self.base_stylesheet)
 
                 editor.setPlainText(content)
                 editor.setAcceptRichText(False)
 
+                editor.installEventFilter(self)
                 editor.selectionChanged.connect(self._on_selection_changed)
                 # Use a lambda to pass the file_path to the slot
                 editor.textChanged.connect(lambda fp=file_path: self._on_text_changed(fp))
@@ -222,8 +241,8 @@ class TextEditorPanel(QWidget):
                 return
 
             # Add to dataset and cache
-            self.main_window.dataset.setdefault(media_path, []).append(new_text_path)
-            self.main_window.text_cache[new_text_path] = ""
+            self.main_window.app_state.dataset.setdefault(media_path, []).append(new_text_path)
+            self.main_window.app_state.text_cache[new_text_path] = ""
             self.main_window.on_text_modified(new_text_path, "") # Mark as dirty
 
             # Ask to apply to all
@@ -233,19 +252,19 @@ class TextEditorPanel(QWidget):
                                        QMessageBox.StandardButton.No)
 
             if reply == QMessageBox.StandardButton.Yes:
-                for m_path in self.main_window.dataset.keys():
+                for m_path in self.main_window.app_state.dataset.keys():
                     if m_path == media_path: continue # Skip current
                     
                     m_base, _ = os.path.splitext(m_path)
                     t_path = m_base + text
                     
                     # Add to dataset if it doesn't exist
-                    if t_path not in self.main_window.dataset.get(m_path, []):
-                        self.main_window.dataset.setdefault(m_path, []).append(t_path)
+                    if t_path not in self.main_window.app_state.dataset.get(m_path, []):
+                        self.main_window.app_state.dataset.setdefault(m_path, []).append(t_path)
                     
                     # Add to cache and mark as dirty if not already there
-                    if t_path not in self.main_window.text_cache:
-                        self.main_window.text_cache[t_path] = ""
+                    if t_path not in self.main_window.app_state.text_cache:
+                        self.main_window.app_state.text_cache[t_path] = ""
                         self.main_window.on_text_modified(t_path, "")
 
             # Refresh the view for the current item
